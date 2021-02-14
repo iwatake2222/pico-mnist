@@ -1,0 +1,15 @@
+14 VCC:  3V3
+13 GND:  GND
+12 CS:     7 (GP5 = SPI0 CSn)
+11 RESET:  9 (GP6)
+10 DC:    10 (GP7)
+9  SDI:    5 (GP3 = SPI0 TX)
+8  SCK:    4 (GP2 = SPI0 SCK)
+7  LED:  3V3
+6  SDO:    6 (GP4 = SPI0 RX)
+5  T_CLK: 14 (GP10 = SPI1 SCK)
+4  T_CS:  17 (GP13 = SPI1 CSn)
+3  T_DIN: 15 (GP11 = SPI1 TX)
+2  T_DO:  16 (GP12 = SPI1 RX)
+1  T_IRQ: 19 (GP14)
+
