@@ -5,6 +5,13 @@
 #include <cstring>
 
 #include "pico/stdlib.h"
+#include "tensorflow/lite/micro/all_ops_resolver.h"
+#include "tensorflow/lite/micro/micro_error_reporter.h"
+#include "tensorflow/lite/micro/micro_interpreter.h"
+#include "tensorflow/lite/schema/schema_generated.h"
+#include "tensorflow/lite/version.h"
+
+#include "conv_mnist_quant.h"
 #include "LcdIli9341SPI.h"
 #include "TpTsc2046SPI.h"
 
@@ -26,16 +33,26 @@ static constexpr int32_t MNIST_H =  28;
 static int8_t s_mnistBuffer[MNIST_W * MNIST_H];
 
 /*** Function ***/
+static tflite::MicroInterpreter* createStaticInterpreter(void);
 static LcdIli9341SPI* createStaticLcd(void);
 static TpTsc2046SPI* createStaticTp(void);
 static void writeMnistBuffer(float tpX, float tpY);
 static void reset(LcdIli9341SPI* lcd);
-static void run(LcdIli9341SPI* lcd);
+static void run(LcdIli9341SPI* lcd, tflite::MicroInterpreter* interpreter);
 
 int main() {
 	stdio_init_all();
+	sleep_ms(1000);		// wait until UART connected
 	printf("Hello, world!\n");
 
+	/* Create interpreter */
+	tflite::MicroInterpreter* interpreter = createStaticInterpreter();
+	if (!interpreter) {
+		printf("createStaticInterpreter failed\n");
+		HALT();
+	}
+
+	/* Create sub modules for paint */
 	LcdIli9341SPI* lcd = createStaticLcd();
 	TpTsc2046SPI* tp = createStaticTp();
 	reset(lcd);
@@ -57,7 +74,7 @@ int main() {
 			} else if (LcdIli9341SPI::WIDTH - 80 < tpX && tpY < 50) {
 				reset(lcd);
 			} else if (LcdIli9341SPI::WIDTH - 80 < tpX && LcdIli9341SPI::HEIGHT - 50 < tpY) {
-				run(lcd);
+				run(lcd, interpreter);
 			}
 			tpXprevious = tpX;
 			tpYprevious = tpY;			
@@ -72,6 +89,34 @@ int main() {
 	HALT();
 	return 0;
 }
+
+static tflite::MicroInterpreter* createStaticInterpreter(void)
+{
+	constexpr int kTensorArenaSize = 10000;
+	static uint8_t tensor_arena[kTensorArenaSize];
+	static tflite::MicroErrorReporter micro_error_reporter;
+	static tflite::ErrorReporter* error_reporter = &micro_error_reporter;
+
+	const tflite::Model* model = tflite::GetModel(conv_mnist_quant_tflite);
+	if (model->version() != TFLITE_SCHEMA_VERSION) {
+		TF_LITE_REPORT_ERROR(error_reporter,
+			"Model provided is schema version %d not equal "
+			"to supported version %d.",
+			model->version(), TFLITE_SCHEMA_VERSION);
+			return nullptr;
+	}
+
+	static tflite::AllOpsResolver resolver;
+	static tflite::MicroInterpreter static_interpreter(model, resolver, tensor_arena, kTensorArenaSize, error_reporter);
+	tflite::MicroInterpreter* interpreter = &static_interpreter;
+	TfLiteStatus allocate_status = interpreter->AllocateTensors();
+	if (allocate_status != kTfLiteOk) {
+		TF_LITE_REPORT_ERROR(error_reporter, "AllocateTensors() failed");
+		return nullptr;
+	}
+	return interpreter;
+}
+
 
 static LcdIli9341SPI* createStaticLcd(void)
 {
@@ -128,7 +173,7 @@ static void reset(LcdIli9341SPI* lcd)
 	memset(s_mnistBuffer, 0, sizeof(s_mnistBuffer));
 }
 
-static void run(LcdIli9341SPI* lcd)
+static void run(LcdIli9341SPI* lcd, tflite::MicroInterpreter* interpreter)
 {
 	/* Debug display */
 	printf("run\n");
@@ -139,13 +184,29 @@ static void run(LcdIli9341SPI* lcd)
 		printf("\n");
 	}
 
+	/* Set input data as int8 (-128 - 127) */
+	TfLiteTensor* input = interpreter->input(0);
+	TfLiteTensor* output = interpreter->output(0);
+	for(int i = 0; i < MNIST_W * MNIST_H; i++) {
+		if (s_mnistBuffer[i] == 1) {
+			input->data.int8[i] = 127;
+		} else {
+			input->data.int8[i] = -128;
+		}
+	}
+
+	/* Inference */
+	TfLiteStatus invoke_status = interpreter->Invoke();
+	if (invoke_status != kTfLiteOk) {
+		printf("Invoke failed\n");
+		HALT();
+	}
 
 	/* Show result */
 	int32_t maxIndex = 0;
 	float maxScore = 0;
 	for(int32_t i = 0; i < 10; i++) {;
-		// float score = (output->data.int8[i] - output->params.zero_point) * output->params.scale;
-		float score = 0.5f;
+		float score = (output->data.int8[i] - output->params.zero_point) * output->params.scale;
 		char text[10];
 		snprintf(text, sizeof(text), "%d:%.2f", i, score);
 		printf("%s\n", text);;
