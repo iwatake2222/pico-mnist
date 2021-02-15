@@ -34,9 +34,10 @@ make
 ```
 
 ## Model
-- Model files, model generation (Keras) and model conversion script for Google Colaboratory are stored in [pj_mnist/conv_mnist](pj_mnist/conv_mnist)
+- Google Colaboratory script for model creation in Keras and model conversion with quantization
 	- [pj_mnist/conv_mnist/tflmicro_mnist.ipynb](pj_mnist/conv_mnist/tflmicro_mnist.ipynb)
 - *Note* : It looks uint8 quantization is not supported. You need to use int8 quantization, or use FP32 model.
+	- https://github.com/raspberrypi/pico-tflmicro/blob/fbfff01ab9adc9b2e83b8eee6e001de13cf3b982/src/tensorflow/lite/micro/kernels/quantize.cpp#L65
 
 ## Acknowledgements
 - pico-sdk
